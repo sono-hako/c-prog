@@ -1,15 +1,9 @@
-/*
-Problems:
-Enlarge segfaults at any value higher than 2, and padding isnt actual padding...
-Rotate only actually rotates clockwise
-	(I'm converting negative angles to their positive representation, so -90 results in 270 rotation)
-*/
 
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
-#include "piclib.h"
+#include "b-lib.h"
 
 /*
  * This method enlarges a 24-bit, uncompressed .bmp file
@@ -27,34 +21,38 @@ Rotate only actually rotates clockwise
  * newcols  - the new number of cols (scale*cols)
  */
 int enlarge(PIXEL* original, int rows, int cols, int scale, 
-			PIXEL** new, int* newrows, int* newcols) 
+        PIXEL** new, int* newrows, int* newcols) 
 {
-	int row, col, scale_r, scale_c;//row, col, scaled rows, scaled cols
-	*newrows = rows * scale;
-	*newcols = cols * scale;
-	if(scale < 1)//dont scale 0 or negative
-		return -1;
-	if( (rows <= 0) || (cols <= 0))
-		return -1;//size isn't correct, stop
+  int row, col, scaleCount;
+  if ((rows <= 0) || (cols <= 0)) return -1;//make sure we actually have something to work with
+  /*
+  scale those rows and cols
+  */
+  *newrows = rows * scale;
+  *newcols = cols * scale;
 
-	*new = (PIXEL*) malloc((rows * scale) * (cols * scale) * sizeof(PIXEL));//malloc scaled size
+  *new = (PIXEL*) malloc((*newcols) * (*newrows) * sizeof(PIXEL));//allocate space for new scaled array
+  /*
+  copys everything line by line
+        source: ab
+                cd
 
-	for(row = 0; row < rows; row++){
-		for(col = 0; col < cols; col++){
-			PIXEL* source = original + row*cols + col;//grab the original pixel	
-			for(scale_r = 0; scale_r < scale; scale_r++){//go through the additional scaled row pixels
-				for(scale_c = 0; scale_c < scale; scale_c++){//scaled col pixels
-					/*
-					skips every other column, essentially padding black spaces between each pixel..
-					but this isnt real padding anyway.. 
-					*/
-					PIXEL* dest = (*new) + (scale_c * scale * col) + ((scale_r * scale * row) * (*newcols));
-					*dest = *source;
-				}
-			}
-		}	
-	}
-	return 0;
+  outer loop 1->aabb
+
+                aabb
+  outer loop 2->ccdd
+  */
+  for(row = 0; row < (*newrows); row++){//for each row, while we havent finished -every- location in the scaled array
+    PIXEL* source = original + (row / scale) * cols;//save source position, (dividing row by scale, since loop continues to newrows size)
+    PIXEL* dest = *new + (row * (*newcols));//get the starting position to start placing scaled pixels
+    for(col = 0; col < cols; col++, source++){
+      for(scaleCount = 0; scaleCount < scale; scaleCount++, dest++){//copy that pix over scale times, moving dest position after each copy
+        *dest = *source;
+      }
+    }
+  }
+
+  return 0;
 }
 
 /*
@@ -72,32 +70,75 @@ int enlarge(PIXEL* original, int rows, int cols, int scale,
  * newcols  - the new number of cols
  */
 int rotate(PIXEL* original, int rows, int cols, int rotation,
-		 PIXEL** new, int* newrows, int* newcols)
+       PIXEL** new, int* newrows, int* newcols)
 {
-	int row, col;
-	if( (rows <= 0) || (cols <= 0))
-		return -1;//size isn't correct, stop
+  int row, col;
+  if ((rows <= 0) || (cols <= 0)) return -1;//make sure we actually have something to work with
 
-	*new = (PIXEL*) malloc(rows*cols*sizeof(PIXEL));
-	/*positive rotation only... ran out of time for proper counter-clockwise rotation
-		main converts all rotations in to a single positive digit (1, 2, or 3)
-		calls rotation up to that many times
-		worst case: 3 rotations occur (270 and -90) 
-	*/
-	*newcols = rows;
-	*newrows = cols;
+  if(rotation % 90 != 0){//want rotation in 90 degre increments
+    fprintf(stderr, "Rotation not a multiple of 90, value entered: %d\n", rotation);
+    return -1;
+  }
+  /*
+  Change cols and rows depending on rotation
+  (180): nothing changes, new rows = old rows and new cols = old cols
+  (90): rows = cols, cols = rows, everything is on its side
+  */
+  if((rotation % 180) == 0){
+    *newrows = rows;
+    *newcols = cols;
+  } else {
+    *newrows = cols;
+    *newcols = rows;
+  }
+  rotation = ((rotation % 360) / 90);//reduce rotation into values [-4..4] (so we dont have to iterate many times)
+  //that is, representing everything in the amount of 90deg rotations required
 
-	for(row = 0; row < rows; row++){
-		for(col = 0; col < cols; col++){
-			PIXEL* source = original + row*cols + col;
-			//since rows and cols swapped...  new rows are previous cols.. new cols are previous rows
-			//essentially same as above, but swapping row with (cols-1-col) and col with row..
-			PIXEL* dest = (*new) + ((cols-1-col) * rows + row);
-			*dest = *source;
-		}
-	}		
-	return 0;
+  *new = (PIXEL*)malloc( (cols) * (rows) * sizeof(PIXEL));//allocate new space
+  //(rotation % 360) returns negative numbers for negative rotation oddly enough
+  if(rotation < 0)
+    rotation += 4;//add 4 to fix rotation, e.g. '-3'(representing -270) becomes 1(90deg)
 
+  switch(rotation){
+    case 1://90, -270
+      for(row = 0; row < rows; row++){
+        for(col = 0; col < cols; col++){
+          PIXEL* source = original + row*cols + col;//grab source pixel offset
+          PIXEL* dest = (*new) + ((cols-col-1) * (*newcols)) + row;//get dest offset (cols became rows, rows become cols)
+         *dest = *source; 
+        }
+      }
+      break;
+    case 2://180, -180
+      for(row = 0; row < rows; row++){
+        for(col = 0; col < cols; col++){
+          PIXEL* source = original + row*cols + col;//grab source pixel offset
+          PIXEL* dest = (*new) + ((rows - row - 1) * (*newcols)) + (cols - col - 1);//get dest offset (start writing from bottom-right corner, and go up)
+          *dest = *source;
+        }
+      }
+      break;
+    case 3://270, -90
+      for(row = 0; row < rows; row++){
+        for(col = 0; col < cols; col++){
+          PIXEL* source = original + row*cols + col;//grab source pixel offset
+          PIXEL* dest = (*new) + (rows * col) + (rows - row - 1);//get dest offset (cols became rows, rows become cols), write in reverse to 90deg
+          *dest = *source;
+        }
+      }
+      break;
+    default://0, 360.., i wanted to just return the source array and not have to duplicate everything
+      //had trouble with that, so just copied everything into output
+      for(row = 0; row < rows; row++){
+        for(col = 0; col < cols; col++){
+          PIXEL* source = original + row*cols + col;
+          PIXEL* dest = (*new) + row*cols + col;
+         *dest = *source; 
+        }
+      }
+      break;
+  }
+  return 0;
 }
 
 /*
@@ -131,98 +172,67 @@ int flip (PIXEL *original, PIXEL **new, int rows, int cols)
   return 0;
 }
 
-void errScale(){
-	fprintf(stderr, "Incorrect usage: -s [scale amount, non-negative]\n");
-	exit(-1);
-}
-
-void errRot(){
-	fprintf(stderr, "Incorrect usage: -r [rotate amount]\n");
-	exit(-1);
-}
-
-void genericErr(){
-	fprintf(stderr, "Incorrect usage: -s [scale amount] -r [rotate amount] -f -o[output file] [input file] \n");
-	exit(-1);
-}
-
 int main(int argc, char** argv)
 {
-	int r, c, opt, scale = 0, f = 0;
-	int rot = 0;
-	int newr, newc;
-	int oldr, oldc;
-	PIXEL *b, *nb, *tmp;
+  char flag;//flag for operations
+  int r, c, op;//r: rows, c: cols, op: getopt stuff
+  int nr, nc;//nr: new rows, nc: new cols
+  int scaleSize = 0;//scaleing size
+  int rotAmount = 0;//rotation amount (in degrees)
+  PIXEL *inPix = NULL, *outPix = NULL;//inpix: input pixels, outpix: output pixels
+  char* inFile = NULL;//string for input file name
+  char* outFile = NULL;//string for output file name
+  
+  opterr = 0;//error catch for getopt, but its not like i'm really error checking (yes i know this is bad practice)
+  while( (op = getopt(argc, argv, "fs:r:o:")) != -1){
+    switch(op){
+      case 'f':
+        flag = 'f';
+        break;
+      case 's':
+        flag = 's';
+        scaleSize = atoi(optarg);
+        break;
+      case 'r':
+        flag = 'r';
+        rotAmount = atoi(optarg);
+        break;
+      case 'o':
+        outFile = optarg;
+        break;
+      case '?':
+        if(optopt == 's')
+            fprintf(stderr,"Option -%c requires additional arguments.\n", optopt);
+        if(optopt == 'r')
+            fprintf(stderr,"Option -%c requires additional arguments.\n", optopt);
+        return 1;
+        break;
+      default:
+        fprintf(stderr, "Unknown command %c\n", optopt);
+        return 1;
+        break;
+    } 
+  }
 
-	char* out = NULL;//out defauling to stdout (actually happens in provided writefile() function)
+  if(optind < argc)//final argument is input bmp (optind holds the offset)
+    inFile = *(argv+optind);
 
-	
-	while( (opt = getopt(argc, argv, "s:r:fo:")) != -1){
-		switch(opt){
-			case 's':
-				scale = atoi(optarg);
-				if(scale < 0)
-					errScale();
-				break;
-			case 'r':
-				rot = atoi(optarg);
-				if(rot % 90 != 0)
-					errRot();
-				break;
-			case 'f':
-				f = 1;
-				break;
-			case 'o':
-				 out = optarg;//outputfile provided
-				 break;
-			default:
-				genericErr();
-				break;
-		}
-	}
-	if(optind < argc)//inputfile name is final argument
-    	readFile(argv[optind], &r, &c, &b);//adjust in to point to that file path in argv, and open it
-    else
-    	readFile(NULL,&r,&c,&b);//using stdin
-	/*
-	printf("%i", optind);
-	printf("scale:  %i \n", scale); */
-	/*
-	call order.. scale > rotate > flip
-	*/
-	//readFile("example.bmp", &r, &c, &b);
-	newr = oldr = r;
-	newc = oldc = c;
-	tmp = b;
-	if (scale > 0) {
-		enlarge(b, oldr, oldr, scale, &nb, &newr, &newc);
-	} else if (rot != 0){
-		while( (rot % 360) == 0){
-			rot = rot / 360;//reduce to lowest amount of rotations
-		}
-		
-		rot/=90;//convert to single digits
+  readFile(inFile, &r, &c, &inPix);
 
-		if(rot < 0){//negative.. -1, -2, -3
-			// -1: -90 = 270
-			// -2: -180 = 180
-			// -3: -270 = 90
-			rot -= 4;//subtract from "4" (which is 360)
-		}
-		if(rot > 0){
-			rotate(tmp, oldr, oldc, rot, &nb, &newr, &newc);//rotate once
-			rot--;
-			while(rot > 0){//if theres multiple rotations...
-				rotate(nb, oldr, oldc, rot, &nb, &newr, &newc);//keep rotating until rot == 0;
-				rot--;
-			}
-		}
-	} else if (f == 1){
-		flip(b, &nb, newr, newc);
-	}
-	writeFile(out, newr, newc, nb);
-		
-	free(b);
-	free(nb);
-	return 0;
+  switch(flag){
+    case 'f':
+      flip(inPix, &outPix, r, c);//not checking return value (bad bad)
+      break;
+    case 's':
+      enlarge(inPix, r, c, scaleSize, &outPix, &nr, &nc);//still not checking return value
+      break;
+    case 'r':
+      rotate(inPix, r, c, rotAmount, &outPix, &nr, &nc);//still not checking return value
+      break;
+  }
+
+  writeFile(outFile, nr, nc, outPix);
+  free(inPix);
+  free(outPix);
+  return 0;
 }

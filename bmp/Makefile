@@ -1,11 +1,11 @@
-bmptool:	bmplib.o main.o
-	gcc -Wall bmplib.o main.o -o bmptool
+bmptool:	b-lib.o main.o
+	$(CC) b-lib.o main.o -o $@
 
-bmplib.o:	bmplib.c bmplib.h
-	gcc -Wall -c bmplib.c bmplib.h
+bmplib.o:	b-lib.c b-lib.h
+	$(CC) -Wall -c $< -o $@
 
-main.o:	main.c bmplib.h 
-	gcc -Wall -c main.c bmplib.h
+main.o:	main.c b-lib.h 
+	$(CC) -Wall -c $< -o $@
 
 clean:
-	rm -f bmptool *.o *.gch core *~
+	rm -f bmptool *.o core *~
